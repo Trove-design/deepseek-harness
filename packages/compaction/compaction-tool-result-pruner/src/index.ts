@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config.ts'
 import type {
+  PlannedPrune,
   PrunedEntry,
   PruneResult,
   ResolvedConfig,
@@ -23,6 +24,7 @@ import type {
 
 export { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config.ts'
 export type {
+  PlannedPrune,
   PrunedEntry,
   PruneResult,
   ResolvedConfig,
@@ -35,8 +37,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-interface SnapshotCandidate {
-  readonly seq: SessionSeq
+interface SnapshotCandidate extends PlannedPrune {
   readonly event: SessionEvent<'tool/result'>
 }
 
@@ -122,6 +123,19 @@ export class ToolResultPruner extends Service {
   }
 
   /**
+   * Compute the replacements a pass would land, without appending anything.
+   * Callers that must keep part of the surface byte-stable (a cache-warm
+   * replay of the history prefix, for example) price the plan first and then
+   * land only the nodes they choose.
+   * @param session - session whose current surface is inspected.
+   * @param include - optional filter over current surface seqs; defaults to every node.
+   * @returns over-budget tool-result nodes with their pruned content, in surface order.
+   */
+  planSession(session: Session, include?: (seq: SessionSeq) => boolean): PlannedPrune[] {
+    return this.snapshot(session, include).map(({ seq, original, content }) => ({ seq, original, content }))
+  }
+
+  /**
    * Prune every over-budget tool result from one stable current-surface snapshot.
    * Each replacement preserves the complete event data except for `content`,
    * cites the shadowed node so replay can recover the replacement input, and is
@@ -129,25 +143,15 @@ export class ToolResultPruner extends Service {
    * shadowed node through the injected token meter, so pure consumers can
    * subtract it without per-node state.
    * @param session - session whose current surface is rewritten.
+   * @param include - optional filter over current surface seqs; omitted nodes stay byte-identical.
    * @returns landed replacements and aggregate Unicode-code-point savings.
    * @throws when the session rejects a replacement; replacements committed
    * earlier in the pass remain durable.
    */
-  pruneSession(session: Session): PruneResult {
-    const candidates: SnapshotCandidate[] = []
-    for (const seq of [...session.surface.nodes]) {
-      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-      const event = session.eventAt(seq)
-      /* v8 ignore next -- surface seqs are validated contiguous log references. */
-      if (event?.type === 'tool/result') candidates.push({ seq, event })
-    }
-
+  pruneSession(session: Session, include?: (seq: SessionSeq) => boolean): PruneResult {
     const pruned: PrunedEntry[] = []
     let charsRemoved = 0
-    for (const { seq, event } of candidates) {
-      const original = session.deriveEventMessage(event) as ToolResultMessage
-      const content = this.pruneContent(original.content)
-      if (content === null) continue
+    for (const { seq, event, original, content } of this.snapshot(session, include)) {
       const charsBefore = this.measureContent(original.content)
       const charsAfter = this.measureContent(content)
       const message = freezeMessage<ToolResultMessage>({
@@ -179,6 +183,22 @@ export class ToolResultPruner extends Service {
       charsRemoved += charsBefore - charsAfter
     }
     return { pruned, charsRemoved }
+  }
+
+  /** Snapshot every included over-budget tool-result node before any replacement lands. */
+  private snapshot(session: Session, include?: (seq: SessionSeq) => boolean): SnapshotCandidate[] {
+    const candidates: SnapshotCandidate[] = []
+    for (const seq of [...session.surface.nodes]) {
+      if (include !== undefined && !include(seq)) continue
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+      const event = session.eventAt(seq)
+      /* v8 ignore next -- surface seqs are validated contiguous log references. */
+      if (event?.type !== 'tool/result') continue
+      const original = session.deriveEventMessage(event) as ToolResultMessage
+      const content = this.pruneContent(original.content)
+      if (content !== null) candidates.push({ seq, event, original, content })
+    }
+    return candidates
   }
 }
 

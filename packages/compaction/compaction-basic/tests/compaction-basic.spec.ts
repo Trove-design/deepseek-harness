@@ -988,7 +988,7 @@ describe('optional model-free tool-result pruning', () => {
     expect(session.surface.replaceGeneration).toBe(1)
   })
 
-  it('summarizes the pruned surface when pruning is insufficient', async () => {
+  it('summarizes the byte-identical region and prunes only the retained tail when pruning is insufficient', async () => {
     const ctx = createContext(2_000)
     void new ToolResultPruner(ctx, pruneConfig)
     const compact = new TestCompactionEngine(ctx, {
@@ -999,11 +999,22 @@ describe('optional model-free tool-result pruning', () => {
       retainTokens: 50,
     })
     const session = toolConversation()
+    const routed = session.deriveMessages()
 
-    expect(await compactIfNeeded(compact, session)).not.toBeNull()
+    const result = await compactIfNeeded(compact, session)
+    expect(result).not.toBeNull()
     expect(compact.calls).toHaveLength(1)
-    expect(summarizedText(compact.calls[0]!.input)).toContain('tool result middle pruned')
-    expect(summarizedText(compact.calls[0]!.input)).not.toContain('result 1 '.repeat(300))
+    // The replay is a prefix of the last routed history, so the provider cache stays warm.
+    const replayed = compact.calls[0]!.input.messages
+    expect(replayed).toEqual(routed.slice(0, replayed.length))
+    expect(summarizedText(compact.calls[0]!.input)).toContain('result 1 '.repeat(300))
+    expect(summarizedText(compact.calls[0]!.input)).not.toContain('tool result middle pruned')
+    // Every landed prune shadows a node after the summarized region.
+    const prunes = session.snapshotEvents().filter(event => event.type === 'compaction/prune')
+    expect(prunes.length).toBeGreaterThan(0)
+    for (const event of prunes) {
+      expect(event.data.shadowedRange.start).toBeGreaterThan(result!.shadowedRange.end)
+    }
   })
 
   it('retains the original compaction-basic behavior without the optional plugin', async () => {

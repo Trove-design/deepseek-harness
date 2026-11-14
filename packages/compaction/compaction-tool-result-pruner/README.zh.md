@@ -57,7 +57,7 @@ kind: "package-reference"
 
 ### 修剪何时运行
 
-修剪只在压缩触发条件满足后运行：`dsh-compaction-basic` 在压力或溢出确认后、选择要压缩的内容之前调用它。低于压力时不会修剪任何内容，修剪本身也不发起模型调用。
+修剪只在压缩触发条件满足后运行：`dsh-compaction-basic` 在压力或溢出确认后调用它。溢出恢复会在选择要压缩的内容之前修剪。压力触发时，如果仅靠修剪即可解除压力，修剪会作用于全部结果；否则只修剪被压缩范围之外的结果。低于压力时不会修剪任何内容，修剪本身也不发起模型调用。
 
 -----
 
@@ -85,9 +85,9 @@ kind: "package-reference"
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultPruner` 服务、`pruneSession` / `pruneContent` / `measureContent` |
+| [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultPruner` 服务、`planSession` / `pruneSession` / `pruneContent` / `measureContent` |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`、默认值、码点计数、预算验证 |
-| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`、`ResolvedConfig`、`PrunedEntry`、`PruneResult` |
+| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`、`ResolvedConfig`、`PrunedEntry`、`PlannedPrune`、`PruneResult` |
 
 </details>
 

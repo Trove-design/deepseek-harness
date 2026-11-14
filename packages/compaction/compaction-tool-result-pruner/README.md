@@ -57,7 +57,7 @@ Character counts are Unicode code points, so slicing never splits an emoji pair,
 
 ### When trimming runs
 
-Trimming only runs when a compaction trigger qualifies: `dsh-compaction-basic` invokes it after pressure or overflow is confirmed, before it selects what to condense. Below pressure nothing is trimmed, and trimming itself makes no model call.
+Trimming only runs when a compaction trigger qualifies: `dsh-compaction-basic` invokes it after pressure or overflow is confirmed. Overflow recovery trims before it selects what to condense. Under pressure, trimming lands everywhere when that alone relieves the pressure; otherwise only results outside the condensed range are trimmed. Below pressure nothing is trimmed, and trimming itself makes no model call.
 
 -----
 
@@ -85,9 +85,9 @@ Pruning measures `text` blocks by Unicode code point (non-text blocks cost zero)
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultPruner` service, `pruneSession` / `pruneContent` / `measureContent` |
+| [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultPruner` service, `planSession` / `pruneSession` / `pruneContent` / `measureContent` |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`, defaults, code-point counting, budget validation |
-| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PrunedEntry`, `PruneResult` |
+| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PrunedEntry`, `PlannedPrune`, `PruneResult` |
 
 </details>
 

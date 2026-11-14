@@ -178,7 +178,7 @@ Read these pages when the package-level contract is not enough; they move from t
 
 #### What the model sees
 
-After a successful step crosses the threshold, the optional pruner first rewrites oversized tool results. If summarization is still necessary, the next request receives the current system instructions at the head and a checkpoint at the selected range. The checkpoint contains the preamble below, a blank line, `<compacted-summary>`, the returned summary, and `</compacted-summary>`. Other retained conversation messages keep their relative order. Overflow recovery derives its immediate retry from this logged history.
+After a successful step crosses the threshold, the optional pruner rewrites every oversized tool result when that alone relieves the pressure. If summarization is still necessary, only oversized results in the retained recent units are rewritten, and the next request receives the current system instructions at the head and a checkpoint at the selected range. The checkpoint contains the preamble below, a blank line, `<compacted-summary>`, the returned summary, and `</compacted-summary>`. Other retained conversation messages keep their relative order. Overflow recovery derives its immediate retry from this logged history.
 
 ##### Conversation checkpoint preamble
 
@@ -188,7 +188,7 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 
 #### Token effect
 
-Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call’s transcript before the summary replaces an older range. The shrink check compares the framed summary against the selected range; it excludes subsequent system-prompt rebuilding, so it does not guarantee that the complete next request is smaller. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
+Model-free pruning can avoid the auxiliary call entirely; otherwise it trims only the retained recent units and leaves that call’s transcript unchanged before the summary replaces an older range. The shrink check compares the framed summary against the selected range; it excludes subsequent system-prompt rebuilding, so it does not guarantee that the complete next request is smaller. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
 
 #### KV Cache effect
 
@@ -245,7 +245,7 @@ This is a separate model call: the replayed conversation prefix plus the fixed i
 
 #### KV Cache effect
 
-The replayed system prompt, tools, and shadowed-region messages match the conversation's last routed request byte-for-byte, so the provider's warm prefix cache is reused up to the trailing instruction; only that instruction, and the summary output, is uncached. Routing the summarizer to a different provider/model, or compacting a non-head range, forgoes this reuse.
+The replayed system prompt, tools, and shadowed-region messages match the conversation's last routed request byte-for-byte, so the provider's warm prefix cache is reused up to the trailing instruction; only that instruction, and the summary output, is uncached. The call also sends that request's reasoning effort, temperature, and stop sequences, and pressure compaction does not prune the replayed range first. Routing the summarizer to a different provider/model, or compacting a non-head range, forgoes this reuse; overflow recovery prunes before it summarizes and can lose it from the first rewritten result.
 
 ## Known Limitations and Deferred Work
 

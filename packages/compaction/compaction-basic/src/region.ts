@@ -487,6 +487,7 @@ function commitCompactionBody(
     summary,
     provider,
     model,
+    reasoningEffort,
     maxTokens,
     usage,
     checkpointMessage,
@@ -506,6 +507,7 @@ function commitCompactionBody(
     shadowedTokenCount,
     provider,
     model,
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
     ...maxTokens === undefined ? {} : { maxTokens },
     ...usage === undefined ? {} : { usage },
   })

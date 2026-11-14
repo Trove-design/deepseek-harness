@@ -98,7 +98,7 @@ type ManualCompactionErrorCode =
 
 `changed` and `summary` close and persist the failed attempt without a summary replacement; image omissions recorded during recovery remain effective. `commit` may follow partial mutation; `persistence` means the in-memory bracket closed but its flush failed. Cancellation remains separate and throws the exact abort reason after required cleanup.
 
-Pressure compaction runs at `agent/pre-step` against the committed request header and at `agent/request` against a changed destination before its header is logged. Unless an explicit summary target is configured, every summary in a session that holds an assistant message uses the route that produced the latest one, so a destination whose first request overflowed does not summarize its own overflow; a failed switch preserves that header and any completed reductions. Once pressure or canonical overflow qualifies, compaction-basic invokes optional [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compaction-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
+Pressure compaction runs at `agent/pre-step` against the committed request header and at `agent/request` against a changed destination before its header is logged. Unless an explicit summary target is configured, every summary in a session that holds an assistant message uses the route that produced the latest one, so a destination whose first request overflowed does not summarize its own overflow; a failed switch preserves that header and any completed reductions. Once canonical overflow qualifies, compaction-basic invokes optional [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md) before range selection and remeasures through `ctx.tokenMeter`. Under pressure it first prices the planned pass: a pass that relieves pressure by itself lands in full and advances the surface without a summary; otherwise only results outside the range selected for the summary are pruned, so the summary call replays that range unchanged. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compaction-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
 The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for the tool-call/result pairing checks before and after a seq. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compaction/compaction/README.md#tool-pairing-boundaries) defines their cache behavior.
 
@@ -129,6 +129,20 @@ interface PruneResult {
   readonly pruned: readonly PrunedEntry[]
   /** Total Unicode code points removed across replacements. */
   readonly charsRemoved: number
+}
+```
+
+A planned pass exposes the same replacements before they land, so a caller can price them and choose which nodes to rewrite.
+
+```ts type-equiv
+/** One replacement a pass would land, computed without touching the log. */
+interface PlannedPrune {
+  /** Current surface node whose tool result is over budget. */
+  readonly seq: SessionSeq
+  /** Model-visible message the node derives today. */
+  readonly original: ToolResultMessage
+  /** Pruned content the replacement would carry. */
+  readonly content: ContentBlock[]
 }
 ```
 
@@ -234,6 +248,17 @@ measureContent(blocks: readonly ContentBlock[]): number
 pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 
 /**
+ * Compute the replacements a pass would land, without appending anything.
+ * Callers that must keep part of the surface byte-stable (a cache-warm
+ * replay of the history prefix, for example) price the plan first and then
+ * land only the nodes they choose.
+ * @param session - session whose current surface is inspected.
+ * @param include - optional filter over current surface seqs; defaults to every node.
+ * @returns over-budget tool-result nodes with their pruned content, in surface order.
+ */
+planSession(session: Session, include?: (seq: SessionSeq) => boolean): PlannedPrune[]
+
+/**
  * Prune every over-budget tool result from one stable current-surface snapshot.
  * Each replacement preserves the complete event data except for `content`,
  * cites the shadowed node so replay can recover the replacement input, and is
@@ -241,14 +266,15 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
  * shadowed node through the injected token meter, so pure consumers can
  * subtract it without per-node state.
  * @param session - session whose current surface is rewritten.
+ * @param include - optional filter over current surface seqs; omitted nodes stay byte-identical.
  * @returns landed replacements and aggregate Unicode-code-point savings.
  * @throws when the session rejects a replacement; replacements committed
  * earlier in the pass remain durable.
  */
-pruneSession(session: Session): PruneResult
+pruneSession(session: Session, include?: (seq: SessionSeq) => boolean): PruneResult
 ```
 
-Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
+Types: [ContentBlock](llm-streaming.md) · [Session](session.md) · [SessionSeq](session.md)
 
 Source: [`packages/compaction/compaction-tool-result-pruner/src/index.ts`](../../packages/compaction/compaction-tool-result-pruner/src/index.ts)
 

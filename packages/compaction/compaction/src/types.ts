@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-compaction/types
  */
 
-import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ReasoningEffortId, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { CommandId } from '@deepseek-ai/dsh-commands/types'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { CompactionId } from './brand.ts'
@@ -47,6 +47,12 @@ declare module '@deepseek-ai/dsh-session/types' {
        * this summary" has a durable answer (the reconstructability Agent Note).
        */
       model: string
+      /**
+       * The reasoning effort the summarize call sent, when one applied. It is
+       * part of the call's cache-relevant envelope, so a fold that missed the
+       * prefix cache can be diagnosed from the log alone.
+       */
+      reasoningEffort?: ReasoningEffortId
       /** The generation cap the summarize call sent, when one applied. */
       maxTokens?: number
       /** Provider-reported token usage for the summarization request, when emitted. */

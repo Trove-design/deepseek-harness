@@ -8,8 +8,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { contentHasImage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
-  ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
+  ContentBlock, FinishReason, GenerateOptions, Message, ReasoningEffortId, RequestMessage, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
+import type { EpochHeader } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 interface SummaryConfig {
@@ -91,6 +92,8 @@ export type SummaryResult = {
   summary: ContentBlock[]
   provider: string
   model: string
+  /** The reasoning effort the summarize call sent, when one was inherited. */
+  reasoningEffort?: ReasoningEffortId
   maxTokens?: number
   /** Provider-reported usage for this summarization request. */
   usage?: TokenUsage
@@ -110,13 +113,40 @@ export type SummaryResult = {
 )
 
 /**
+ * Prompt-shaping controls the summarization call copies from the latest
+ * durable request header when it targets exactly that route. dsh-llm's
+ * call-config documents provider, model, reasoning effort, and sampling as
+ * request-header state that can affect cache reuse; without them the replayed
+ * prefix belongs to a different request family and is prefilled cold (#1944,
+ * #3002). `maxTokens` is deliberately not inherited: it caps output rather
+ * than shaping the cached prompt, and the policy sizes it against the
+ * reserved compaction headroom so the call still fits the window.
+ * @param header - latest durable request header, when one was routed.
+ * @param target - provider/model the summarization call will use.
+ * @returns the controls to spread into the summarization request.
+ */
+export function inheritedCallControls(
+  header: Pick<EpochHeader, 'config'> | undefined,
+  target: { readonly provider: string; readonly model: string },
+): Pick<GenerateOptions, 'reasoningEffort' | 'temperature' | 'stop'> {
+  const config = header?.config
+  if (config === undefined || config.provider !== target.provider || config.model !== target.model) return {}
+  return {
+    ...config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort },
+    ...config.temperature === undefined ? {} : { temperature: config.temperature },
+    ...config.stop === undefined ? {} : { stop: [...config.stop] },
+  }
+}
+
+/**
  * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay
- * the conversation prefix, then append the compaction instruction as the final
- * user message so the provider's warm prefix cache is reused.
+ * the conversation prefix with the routed request's prompt-shaping controls,
+ * then append the compaction instruction as the final user message so the
+ * provider's warm prefix cache is reused.
  * @param ctx - context providing the LLM service.
  * @param config - resolved backend configuration.
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
- * @param agent - supplies tool history and session id.
+ * @param agent - supplies the latest request header, tool history, and session id.
  * @param conversation - route used when `config` names no summary target; `undefined` when the conversation has none.
  * @param signal - optional cancellation forwarded to the adapter.
  * @returns safe text-only summary blocks and the exact call envelope and output.
@@ -129,6 +159,7 @@ export async function summarizeWithLlm(
   conversation: SummaryRoute | undefined,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
+  const header = agent.session.requestHeader()
   const configured = config.summarizationProvider.length === 0
     ? undefined
     : { provider: config.summarizationProvider, model: config.summarizationModel }
@@ -150,6 +181,7 @@ export async function summarizeWithLlm(
   const options: GenerateOptions = {
     provider: target.provider,
     model: target.model,
+    ...inheritedCallControls(header, target),
     messages,
     toolHistory: agent.session.toolHistory(),
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
@@ -173,6 +205,7 @@ export async function summarizeWithLlm(
     llmStreamCall: true,
     provider: options.provider,
     model: options.model,
+    ...options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort },
     maxTokens: config.maxTokens,
     ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
   }

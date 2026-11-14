@@ -4829,9 +4829,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'pruned content, or `null` when the text is within budget.',
       },
       {
-        signature: 'pruneSession(session: Session): PruneResult',
+        signature: 'planSession(session: Session, include?: (seq: SessionSeq) => boolean): PlannedPrune[]',
+        description: 'Compute the replacements a pass would land, without appending anything. Callers that must keep part of the surface byte-stable (a cache-warm replay of the history prefix, for example) price the plan first and then land only the nodes they choose.',
+        parameters: [{ name: 'session', description: 'session whose current surface is inspected.' }, { name: 'include', description: 'optional filter over current surface seqs; defaults to every node.' }],
+        returns: 'over-budget tool-result nodes with their pruned content, in surface order.',
+      },
+      {
+        signature: 'pruneSession(session: Session, include?: (seq: SessionSeq) => boolean): PruneResult',
         description: 'Prune every over-budget tool result from one stable current-surface snapshot. Each replacement preserves the complete event data except for `content`, cites the shadowed node so replay can recover the replacement input, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter, so pure consumers can subtract it without per-node state.',
-        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }],
+        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }, { name: 'include', description: 'optional filter over current surface seqs; omitted nodes stay byte-identical.' }],
         returns: 'landed replacements and aggregate Unicode-code-point savings.',
         throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
       },
@@ -9005,6 +9011,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PiAiRequestHeaderContext',
     declaration: 'export interface PiAiRequestHeaderContext extends Readonly<Pick<GenerateOptions<string>, \'provider\' | \'model\' | \'sessionId\' | \'purpose\'>> {\n    readonly baseURL: string;\n}',
+  },
+  {
+    name: 'PlannedPrune',
+    declaration: 'export interface PlannedPrune {\n    readonly seq: SessionSeq;\n    readonly original: ToolResultMessage;\n    readonly content: ContentBlock[];\n}',
   },
   {
     name: 'PlatformSession',

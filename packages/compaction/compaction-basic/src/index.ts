@@ -29,6 +29,7 @@ import {
   compactSurfaceRegion,
   selectCompactableRange,
 } from './region.ts'
+import { planPrune } from './cache-aware-prune.ts'
 import { summarizeWithLlm } from './summarizer.ts'
 import type { SummarizationInput, SummaryResult, SummaryRoute } from './summarizer.ts'
 import type {
@@ -359,11 +360,30 @@ export class BasicCompactionEngine extends CompactionEngine {
     )
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
-    // Once pressure qualifies, land the model-free pass before choosing a
-    // summary range, then remeasure through the singleton replay fold.
+    // Once pressure qualifies, the model-free pass runs first. When it alone
+    // clears pressure it lands everywhere. When a summary runs anyway, it must
+    // not rewrite the region the summary call replays, or that call misses
+    // the provider prefix cache from the first rewritten node on; only the
+    // retained tail is pruned (see cache-aware-prune.ts).
     if (prune !== undefined) {
-      prune.pruneSession(agent.session)
-      measurement = meter.measure(agent.session, header)
+      const decision = planPrune(
+        prune, meter, agent.session, measurement, spec.thresholdTokens, spec.retainTokens,
+      )
+      switch (decision.kind) {
+        case 'none':
+          break
+        case 'prune-only':
+          prune.pruneSession(agent.session)
+          measurement = meter.measure(agent.session, header)
+          break
+        case 'tail-only':
+          prune.pruneSession(agent.session, seq => decision.tail.has(seq))
+          measurement = meter.measure(agent.session, header)
+          break
+        /* v8 ignore next -- closed-union exhaustiveness guard */
+        default:
+          assertNever(decision, 'prune decision')
+      }
     }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 

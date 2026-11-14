@@ -1,4 +1,4 @@
-import type { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 
 /** Character-budget policy for deterministic tool-result pruning. */
@@ -30,6 +30,16 @@ export interface PrunedEntry {
   readonly charsBefore: number
   /** Replacement text size in Unicode code points. */
   readonly charsAfter: number
+}
+
+/** One replacement a pass would land, computed without touching the log. */
+export interface PlannedPrune {
+  /** Current surface node whose tool result is over budget. */
+  readonly seq: SessionSeq
+  /** Model-visible message the node derives today. */
+  readonly original: ToolResultMessage
+  /** Pruned content the replacement would carry. */
+  readonly content: ContentBlock[]
 }
 
 /** Aggregate outcome of one stable-surface pruning pass. */
