@@ -1,7 +1,7 @@
 /** Explicit exceptions and Host packages for the published dependency policy. */
 
 /** Packages treated as Client/Host packages without declaring `dsh.client`. */
-const CLIENT_FACE_INCLUDE: readonly string[] = []
+const CLIENT_FACE_INCLUDE: readonly string[] = ['@deepseek-ai/dsh-web']
 
 /** Packages exempted from automatic Client/Host treatment despite declaring `dsh.client`. */
 const CLIENT_FACE_EXCLUDE: readonly string[] = [
